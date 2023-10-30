@@ -5,6 +5,41 @@ volumes:
   n8n_storage:
   caddy_data:
   caddy_config:
+  redis_storage:
+
+
+
+x-shared: &shared
+  restart: always
+  image: docker.n8n.io/n8nio/n8n
+  environment:
+    - N8N_BASIC_AUTH_ACTIVE=true
+    - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
+    - N8N_PORT=5678
+    - N8N_PROTOCOL=https
+    - NODE_ENV=production
+    - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
+    - DB_TYPE=postgresdb
+    - DB_POSTGRESDB_HOST=postgres
+    - DB_POSTGRESDB_PORT=5432
+    - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+    - DB_POSTGRESDB_USER=${POSTGRES_NON_ROOT_USER}
+    - DB_POSTGRESDB_PASSWORD=${POSTGRES_NON_ROOT_PASSWORD}
+    #- ${DATA_FOLDER}/local_files:/files
+    #- EXECUTIONS_MODE=queue
+    #- QUEUE_BULL_REDIS_HOST=redis
+    #- QUEUE_HEALTH_CHECK_ACTIVE=true
+  links:
+    - postgres
+    - redis
+  volumes:
+    - n8n_storage:/home/node/.n8n
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
 
 services:
   caddy:
@@ -35,30 +70,24 @@ services:
       timeout: 5s
       retries: 10
 
-  n8n:
-    image: docker.n8n.io/n8nio/n8n
+  redis:
+    image: redis:6-alpine
     restart: always
-    environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=https
-      - NODE_ENV=production
-      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
-      - DB_POSTGRESDB_USER=${POSTGRES_NON_ROOT_USER}
-      - DB_POSTGRESDB_PASSWORD=${POSTGRES_NON_ROOT_PASSWORD}
-      - ${DATA_FOLDER}/local_files:/files
+    volumes:
+      - redis_storage:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    <<: *shared
     ports:
       - 5678:5678
-    links:
-      - postgres
-      - caddy
-    volumes:
-      - n8n_storage:/home/node/.n8n
-    depends_on:
-      postgres:
-        condition: service_healthy
+
+  #n8n-worker:
+  #  <<: *shared
+  #  command: worker
+  #  depends_on:
+  #    - n8n
